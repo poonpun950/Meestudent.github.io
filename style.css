@@ -924,7 +924,6 @@
     position: fixed;
     inset: 0;
     background: rgba(0,0,0,0.6);
-    backdrop-filter: blur(2px);
     z-index: 150;   /* ต่ำกว่า sidebar (z-index:200) แต่สูงกว่า content */
     opacity: 0;
     transition: opacity 0.3s;
@@ -1032,3 +1031,4 @@
     background: linear-gradient(135deg, var(--accent-blue-dark), var(--accent-blue)) !important;
     border: none !important;
   }
+
