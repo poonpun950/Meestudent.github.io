@@ -1,1252 +1,645 @@
-:root {
-    --bg-primary: #0f1117;
-    --bg-secondary: #161b27;
-    --bg-card: #1a2035;
-    --bg-card-hover: #1e2640;
-    --accent-blue: #3b82f6;
-    --accent-blue-bright: #60a5fa;
-    --accent-blue-dark: #1d4ed8;
-    --accent-cyan: #06b6d4;
-    --border-blue: #2d4a8a;
-    --border-bright: #3b82f6;
-    --text-primary: #e2e8f0;
-    --text-secondary: #94a3b8;
-    --text-muted: #64748b;
-    --success: #10b981;
-    --warning: #f59e0b;
-    --danger: #ef4444;
-    --info: #06b6d4;
-    --sidebar-width: 240px;
-    --nav-height: 60px;
-    --shadow-blue: 0 0 20px rgba(59, 130, 246, 0.15);
-    --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.4);
+
+// ===== CONFIG =====
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby3WrYxTQqTA4Tl2H9tWnGl13x0BF9e2cHHBTEhFMDoGFSj5GUsjUIx5iIUD_YG2ddN5Q/exec';
+
+// ===== DATA STORE =====
+let appData = {
+  students: [],
+  attendance: {},
+  loaded: false
+};
+
+// ===== INIT =====
+window.onload = () => {
+  setTodayDate();
+  startClock();
+  loadAllData();
+};
+
+function setTodayDate() {
+  const today = new Date();
+  const y = today.getFullYear();
+  const m = String(today.getMonth()+1).padStart(2,'0');
+  const d = String(today.getDate()).padStart(2,'0');
+  document.getElementById('checkin-date').value = `${y}-${m}-${d}`;
 }
 
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
+function startClock() {
+  const days = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัส','ศุกร์','เสาร์'];
+  const months = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+
+  function update() {
+    const now = new Date();
+    document.getElementById('clock-day').textContent = 'วัน' + days[now.getDay()];
+    document.getElementById('clock-date').textContent =
+      `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()+543}`;
+    const hh = String(now.getHours()).padStart(2,'0');
+    const mm = String(now.getMinutes()).padStart(2,'0');
+    const ss = String(now.getSeconds()).padStart(2,'0');
+    document.getElementById('clock-time').textContent = `${hh}:${mm}:${ss}`;
+  }
+  update();
+  setInterval(update, 1000);
 }
 
-html,
-body {
-    font-family: 'IBM Plex Sans Thai', 'Sarabun', sans-serif;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    min-height: 100vh;
-    /* ป้องกัน UI เกินขนาดจอโทรศัพท์ */
-    overflow-x: hidden;
-    max-width: 100vw;
-    width: 100%;
+// ===== NAVIGATION =====
+function showPage(id, navEl) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const page = document.getElementById('page-' + id);
+  if (page) page.classList.add('active');
+  if (navEl) navEl.classList.add('active');
+
+  // Load page-specific data
+  if (id === 'statistics') loadStudentsForStats();
+  if (id === 'students-list') renderStudentList();
+  if (id === 'dashboard') updateDashboard();
+
+  // Close sidebar + overlay on mobile
+  if (window.innerWidth <= 768) closeSidebar();
 }
 
-/* Background texture */
-body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background:
-        radial-gradient(ellipse at 10% 20%, rgba(59, 130, 246, 0.06) 0%, transparent 50%),
-        radial-gradient(ellipse at 90% 80%, rgba(6, 182, 212, 0.04) 0%, transparent 50%);
-    pointer-events: none;
-    z-index: 0;
+function toggleSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  if (sidebar.classList.contains('open')) {
+    closeSidebar();
+  } else {
+    sidebar.classList.add('open');
+    document.body.classList.add('sidebar-open');
+    document.body.style.overflow = 'hidden';
+  }
 }
 
-/* ====== TOP NAV ====== */
-.topnav {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: var(--nav-height);
-    background: rgba(22, 27, 39, 0.98);
-    /* ไม่ใช้ backdrop-filter เพราะทำให้ iOS สร้าง compositing layer ใหม่และ blur sidebar */
-    border-bottom: 1px solid var(--border-blue);
-    display: flex;
-    align-items: center;
-    padding: 0 12px;
-    gap: 10px;
-    z-index: 1000;
-    box-shadow: 0 2px 20px rgba(0, 0, 0, 0.5);
-    width: 100%;
-    max-width: 100vw;
-    overflow: hidden;
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.body.classList.remove('sidebar-open');
+  document.body.style.overflow = '';
 }
 
-.logo-wrap {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-    /* ให้ย่อได้บนมือถือ */
-    flex-shrink: 0;
+// คลิก overlay (body::after) เพื่อปิด sidebar
+document.addEventListener('click', function(e) {
+  const sidebar = document.getElementById('sidebar');
+  const toggle = document.querySelector('.menu-toggle');
+  if (
+    document.body.classList.contains('sidebar-open') &&
+    !sidebar.contains(e.target) &&
+    !toggle.contains(e.target)
+  ) {
+    closeSidebar();
+  }
+});
+
+// ===== JSONP HELPER =====
+function jsonpRequest(params) {
+  return new Promise((resolve, reject) => {
+    const cbName = 'cb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+    const timeout = setTimeout(() => {
+      delete window[cbName];
+      if (script.parentNode) script.parentNode.removeChild(script);
+      reject(new Error('Request timeout'));
+    }, 15000);
+
+    window[cbName] = (data) => {
+      clearTimeout(timeout);
+      delete window[cbName];
+      if (script.parentNode) script.parentNode.removeChild(script);
+      resolve(data);
+    };
+
+    const qs = Object.entries({...params, callback: cbName})
+      .map(([k,v]) => `${encodeURIComponent(k)}=${encodeURIComponent(typeof v === 'object' ? JSON.stringify(v) : v)}`)
+      .join('&');
+
+    const script = document.createElement('script');
+    script.src = `${SCRIPT_URL}?${qs}`;
+    script.onerror = () => {
+      clearTimeout(timeout);
+      delete window[cbName];
+      reject(new Error('Script load error'));
+    };
+    document.head.appendChild(script);
+  });
 }
 
-.logo-icon {
-    width: 36px;
-    height: 36px;
-    background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
-    box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
+// ===== LOAD DATA =====
+async function loadAllData() {
+  try {
+    const res = await jsonpRequest({ action: 'getData' });
+    if (res && res.students) {
+      appData.students = res.students || [];
+      appData.attendance = res.attendance || {};
+      appData.loaded = true;
+      updateBadge();
+      updateDashboard();
+      renderStudentList();
+      renderStatsTable();
+    }
+  } catch(e) {
+    console.warn('Load failed, using local data:', e);
+    // Use demo data if can't connect
+    appData.students = [
+      {id:'s001', number:1, name:'นาย ธนภัทร สุขสวัสดิ์', class:'ม.1'},
+      {id:'s002', number:2, name:'นางสาว มัลลิกา ดวงดี', class:'ม.1'},
+      {id:'s003', number:3, name:'นาย อภิสิทธิ์ ทองแท้', class:'ม.1'},
+      {id:'s004', number:1, name:'นาย พีรพัฒน์ แก้วใส', class:'ม.2'},
+      {id:'s005', number:2, name:'นางสาว สุภาพร รุ่งเรือง', class:'ม.2'},
+    ];
+    appData.loaded = true;
+    updateBadge();
+    updateDashboard();
+  }
 }
 
-.logo-text {
-    display: flex;
-    flex-direction: column;
+function updateBadge() {
+  document.getElementById('total-badge').textContent = appData.students.length;
+  document.getElementById('dash-total').textContent = appData.students.length;
 }
 
-.logo-title {
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--text-primary);
-    letter-spacing: 0.05em;
-    line-height: 1;
+function updateDashboard() {
+  const today = document.getElementById('checkin-date').value;
+  const todayAtt = appData.attendance[today] || [];
+
+  // นับสถิติวันนี้สำหรับ card หน้าหลัก
+  let p=0, l=0, lv=0, ab=0;
+  todayAtt.forEach(a => {
+    if(a.status==='present') p++;
+    else if(a.status==='late') l++;
+    else if(a.status==='leave') lv++;
+    else if(a.status==='absent') ab++;
+  });
+
+  // ถ้าวันนี้ไม่มีข้อมูล ให้นับจากทุกวันแทน
+  if (todayAtt.length === 0) {
+    Object.values(appData.attendance).forEach(dayRecs => {
+      dayRecs.forEach(a => {
+        if(a.status==='present') p++;
+        else if(a.status==='late') l++;
+        else if(a.status==='leave') lv++;
+        else if(a.status==='absent') ab++;
+      });
+    });
+  }
+
+  document.getElementById('dash-present').textContent = p;
+  document.getElementById('dash-late').textContent = l;
+  document.getElementById('dash-leave').textContent = lv;
+  document.getElementById('dash-absent').textContent = ab;
+
+  const days = Object.keys(appData.attendance).length;
+  document.getElementById('dash-checkin-days').textContent = days > 0 ? days + ' วัน' : '—';
+
+  const total = p + l + lv + ab;
+  if (total > 0) {
+    const rate = Math.round((p / total) * 100);
+    document.getElementById('dash-rate').textContent = rate + '%';
+  } else {
+    document.getElementById('dash-rate').textContent = '—';
+  }
 }
 
-.logo-sub {
-    font-size: 10px;
-    color: var(--accent-blue-bright);
-    letter-spacing: 0.1em;
-    font-weight: 400;
+// ===== CHECK-IN =====
+async function loadStudentsForCheckin() {
+  const cls = document.getElementById('checkin-class').value;
+  const wrap = document.getElementById('checkin-table-wrap');
+  const saveSection = document.getElementById('checkin-save-section');
+
+  if (!cls) {
+    wrap.innerHTML = `<div class="empty-state"><i class="fas fa-arrow-up"></i><p>กรุณาเลือกชั้นเรียนก่อน</p></div>`;
+    saveSection.style.display = 'none';
+    return;
+  }
+
+  wrap.innerHTML = `<div class="empty-state"><div class="spinner"></div><p>กำลังโหลดรายชื่อ...</p></div>`;
+
+  // Filter students
+  const students = appData.students.filter(s => s.class === cls).sort((a,b) => (a.number||0)-(b.number||0));
+  const date = document.getElementById('checkin-date').value;
+  const prevAtt = appData.attendance[date] || [];
+
+  if (students.length === 0) {
+    wrap.innerHTML = `<div class="empty-state"><i class="fas fa-user-slash"></i><p>ไม่พบนักเรียนในชั้น ${cls}<br><a onclick="showPage('addstudent',null)" style="color:var(--accent-blue);cursor:pointer;">+ เพิ่มนักเรียน</a></p></div>`;
+    saveSection.style.display = 'none';
+    return;
+  }
+
+  let html = `
+    <table class="attendance-table">
+      <thead>
+        <tr>
+          <th>เลขที่</th>
+          <th>ชื่อ-สกุล</th>
+          <th>สถานะ</th>
+        </tr>
+      </thead>
+      <tbody>`;
+
+  students.forEach(s => {
+    const prev = prevAtt.find(a => a.student_id === s.id);
+    const currentStatus = prev ? prev.status : 'present';
+    html += `
+      <tr class="student-row">
+        <td><span class="student-num">${s.number || '—'}</span></td>
+        <td><span class="student-name">${s.name}</span></td>
+        <td>
+          <div class="status-group">
+            <input type="radio" class="status-radio" name="status_${s.id}" id="p_${s.id}" value="present" ${currentStatus==='present'?'checked':''}>
+            <label class="status-label" for="p_${s.id}"><i class="fas fa-check"></i> มา</label>
+
+            <input type="radio" class="status-radio" name="status_${s.id}" id="l_${s.id}" value="late" ${currentStatus==='late'?'checked':''}>
+            <label class="status-label" for="l_${s.id}"><i class="fas fa-clock"></i> สาย</label>
+
+            <input type="radio" class="status-radio" name="status_${s.id}" id="lv_${s.id}" value="leave" ${currentStatus==='leave'?'checked':''}>
+            <label class="status-label" for="lv_${s.id}"><i class="fas fa-file-alt"></i> ลา</label>
+
+            <input type="radio" class="status-radio" name="status_${s.id}" id="ab_${s.id}" value="absent" ${currentStatus==='absent'?'checked':''}>
+            <label class="status-label" for="ab_${s.id}"><i class="fas fa-times"></i> ขาด</label>
+          </div>
+        </td>
+      </tr>`;
+  });
+
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+  saveSection.style.display = 'block';
+  updateCheckinCount();
+
+  // Update count on change
+  document.querySelectorAll('[name^="status_"]').forEach(r => {
+    r.addEventListener('change', updateCheckinCount);
+  });
 }
 
-.nav-search {
-    flex: 1;
-    position: relative;
+function updateCheckinCount() {
+  const cls = document.getElementById('checkin-class').value;
+  const students = appData.students.filter(s => s.class === cls);
+  const p = document.querySelectorAll('[name^="status_"][value="present"]:checked').length;
+  const l = document.querySelectorAll('[name^="status_"][value="late"]:checked').length;
+  const lv = document.querySelectorAll('[name^="status_"][value="leave"]:checked').length;
+  const ab = document.querySelectorAll('[name^="status_"][value="absent"]:checked').length;
+  const info = document.getElementById('checkin-count-info');
+  if (info) info.innerHTML = `<span style="color:var(--success)">มา ${p}</span> · <span style="color:var(--warning)">สาย ${l}</span> · <span style="color:var(--info)">ลา ${lv}</span> · <span style="color:var(--danger)">ขาด ${ab}</span>`;
 }
 
-.nav-search input {
-    width: 100%;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid var(--border-blue);
-    border-radius: 8px;
-    padding: 8px 16px 8px 36px;
-    color: var(--text-primary);
-    font-family: inherit;
-    font-size: 13px;
-    outline: none;
-    transition: border-color 0.2s;
+function setAllStatus(status) {
+  document.querySelectorAll(`[name^="status_"][value="${status}"]`).forEach(r => {
+    r.checked = true;
+  });
+  updateCheckinCount();
 }
 
-.nav-search input:focus {
-    border-color: var(--accent-blue);
+async function saveAttendance() {
+  const date = document.getElementById('checkin-date').value;
+  const cls = document.getElementById('checkin-class').value;
+  if (!date || !cls) {
+    Swal.fire({ icon:'warning', title:'แจ้งเตือน', text:'กรุณาเลือกวันที่และชั้นเรียน', confirmButtonText:'ตกลง' });
+    return;
+  }
+
+  const students = appData.students.filter(s => s.class === cls);
+  const records = [];
+  students.forEach(s => {
+    const checked = document.querySelector(`[name="status_${s.id}"]:checked`);
+    if (checked) records.push({ student_id: s.id, status: checked.value, name: s.name, class: s.class, number: s.number });
+  });
+
+  if (records.length === 0) {
+    Swal.fire({ icon:'warning', title:'ไม่มีข้อมูล', text:'ไม่พบรายชื่อนักเรียน', confirmButtonText:'ตกลง' });
+    return;
+  }
+
+  Swal.fire({
+    title: 'กำลังบันทึก...',
+    html: '<div class="spinner" style="margin:0 auto"></div><br>กรุณารอสักครู่',
+    allowOutsideClick: false,
+    showConfirmButton: false,
+    didOpen: () => Swal.showLoading()
+  });
+
+  try {
+    const res = await jsonpRequest({
+      action: 'saveAttendance',
+      date: date,
+      class: cls,
+      records: JSON.stringify(records)
+    });
+
+    // Update local data
+    appData.attendance[date] = appData.attendance[date] || [];
+    // Remove old records for this class/date
+    appData.attendance[date] = appData.attendance[date].filter(a => {
+      const st = appData.students.find(s => s.id === a.student_id);
+      return st && st.class !== cls;
+    });
+    records.forEach(r => appData.attendance[date].push({ student_id: r.student_id, status: r.status }));
+
+    Swal.fire({
+      icon: 'success',
+      title: 'บันทึกสำเร็จ! ✓',
+      html: `<b>เช็คชื่อ ${cls} วันที่ ${date}</b><br>บันทึกข้อมูล ${records.length} คน เรียบร้อย`,
+      confirmButtonText: 'ตกลง',
+      timer: 3000
+    });
+
+    updateDashboard();
+  } catch(e) {
+    Swal.fire({
+      icon: 'error',
+      title: 'เกิดข้อผิดพลาด',
+      html: `ไม่สามารถเชื่อมต่อ Google Sheets ได้<br><small style="color:#888">${e.message}</small>`,
+      confirmButtonText: 'ลองใหม่'
+    });
+  }
 }
 
-.nav-search i {
-    position: absolute;
-    left: 12px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: var(--text-muted);
-    font-size: 13px;
+// ===== ADD STUDENT =====
+async function addStudent() {
+  const num = document.getElementById('add-num').value.trim();
+  const name = document.getElementById('add-name').value.trim();
+  const cls = document.getElementById('add-class').value;
+
+  if (!num || !name || !cls) {
+    Swal.fire({ icon:'warning', title:'ข้อมูลไม่ครบ', text:'กรุณากรอกข้อมูลให้ครบทุกช่อง', confirmButtonText:'ตกลง' });
+    return;
+  }
+
+  // Check duplicate
+  const duplicate = appData.students.find(s => s.class === cls && String(s.number) === String(num));
+  if (duplicate) {
+    Swal.fire({ icon:'error', title:'เลขที่ซ้ำ', text:`เลขที่ ${num} ในชั้น ${cls} มีอยู่แล้ว (${duplicate.name})`, confirmButtonText:'ตกลง' });
+    return;
+  }
+
+  Swal.fire({
+    title: 'กำลังบันทึก...',
+    allowOutsideClick: false,
+    showConfirmButton: false,
+    didOpen: () => Swal.showLoading()
+  });
+
+  const studentId = 's' + Date.now();
+  const student = { id: studentId, number: parseInt(num), name, class: cls };
+
+  try {
+    const res = await jsonpRequest({
+      action: 'addStudent',
+      student: JSON.stringify(student)
+    });
+
+    appData.students.push(student);
+    updateBadge();
+    renderStudentList();
+
+    document.getElementById('add-num').value = '';
+    document.getElementById('add-name').value = '';
+    document.getElementById('add-class').value = '';
+
+    Swal.fire({
+      icon: 'success',
+      title: 'เพิ่มนักเรียนเรียบร้อย! ✓',
+      html: `<b>${name}</b><br>ชั้น ${cls} เลขที่ ${num}`,
+      confirmButtonText: 'ตกลง',
+      timer: 3000
+    });
+  } catch(e) {
+    // Add locally if server fails
+    appData.students.push(student);
+    updateBadge();
+    renderStudentList();
+
+    document.getElementById('add-num').value = '';
+    document.getElementById('add-name').value = '';
+    document.getElementById('add-class').value = '';
+
+    Swal.fire({
+      icon: 'warning',
+      title: 'บันทึกในระบบชั่วคราว',
+      html: `เพิ่ม <b>${name}</b> เรียบร้อยแล้ว<br><small style="color:#888">หมายเหตุ: ไม่สามารถซิงค์กับ Google Sheets ได้</small>`,
+      confirmButtonText: 'ตกลง'
+    });
+  }
 }
 
-.nav-actions {
-    display: flex;
-    gap: 8px;
+// ===== STUDENT LIST =====
+function renderStudentList() {
+  const wrap = document.getElementById('students-list-table-wrap');
+  if (!wrap) return;
+
+  const filter = document.getElementById('list-class-filter') ? document.getElementById('list-class-filter').value : '';
+  let students = filter ? appData.students.filter(s => s.class === filter) : appData.students;
+  students = [...students].sort((a,b) => {
+    if (a.class < b.class) return -1;
+    if (a.class > b.class) return 1;
+    return (a.number||0) - (b.number||0);
+  });
+
+  if (students.length === 0) {
+    wrap.innerHTML = `<div class="empty-state"><i class="fas fa-user-slash"></i><p>ไม่พบข้อมูลนักเรียน</p></div>`;
+    return;
+  }
+
+  let html = `
+    <table class="stats-table">
+      <thead>
+        <tr>
+          <th>เลขที่</th>
+          <th>ชื่อ-สกุล</th>
+          <th>ชั้นเรียน</th>
+          <th style="text-align:right; padding-right:20px;">จัดการ</th>
+        </tr>
+      </thead>
+      <tbody>`;
+
+  students.forEach(s => {
+    html += `
+      <tr>
+        <td><span class="student-num">${s.number || '—'}</span></td>
+        <td style="font-weight:500">${s.name}</td>
+        <td><span style="background:rgba(59,130,246,0.15);color:var(--accent-blue-bright);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;">${s.class}</span></td>
+        <td style="text-align:right; padding-right:16px;">
+          <button onclick="deleteStudent('${s.id}')" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:var(--danger);padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;font-family:inherit;">
+            <i class="fas fa-trash"></i>
+          </button>
+        </td>
+      </tr>`;
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
 }
 
-.nav-btn {
-    background: rgba(59, 130, 246, 0.1);
-    border: 1px solid var(--border-blue);
-    color: var(--text-secondary);
-    padding: 7px 14px;
-    border-radius: 8px;
-    font-family: inherit;
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    white-space: nowrap;
-}
+function deleteStudent(id) {
+  const student = appData.students.find(s => s.id === id);
+  if (!student) return;
 
-.nav-btn:hover {
-    background: rgba(59, 130, 246, 0.2);
-    border-color: var(--accent-blue);
-    color: var(--text-primary);
-}
+  Swal.fire({
+    title: 'ยืนยันการลบ?',
+    html: `ลบ <b>${student.name}</b><br><small style="color:#94a3b8">ชั้น ${student.class} เลขที่ ${student.number}</small>`,
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: '<i class="fas fa-trash"></i> ลบเลย',
+    cancelButtonText: 'ยกเลิก',
+    confirmButtonColor: '#ef4444',
+    cancelButtonColor: '#374151'
+  }).then(async result => {
+    if (!result.isConfirmed) return;
 
-/* ====== LAYOUT ====== */
-.layout {
-    display: flex;
-    margin-top: var(--nav-height);
-    min-height: calc(100vh - var(--nav-height));
-    position: relative;
-    z-index: 1;
-}
+    // แสดง loading ระหว่างรอ
+    Swal.fire({
+      title: 'กำลังลบ...',
+      allowOutsideClick: false,
+      showConfirmButton: false,
+      didOpen: () => Swal.showLoading()
+    });
 
-/* ====== SIDEBAR ====== */
-.sidebar {
-    width: var(--sidebar-width);
-    background: var(--bg-secondary);
-    border-right: 1px solid var(--border-blue);
-    padding: 20px 12px;
-    position: fixed;
-    top: var(--nav-height);
-    bottom: 0;
-    left: 0;
-    overflow-y: auto;
-    z-index: 100;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.sidebar-section-label {
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--text-muted);
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    padding: 12px 8px 6px;
-}
-
-.nav-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
-    border-radius: 10px;
-    cursor: pointer;
-    transition: all 0.2s;
-    border: 1px solid transparent;
-    color: var(--text-secondary);
-    font-size: 13px;
-    font-weight: 500;
-    position: relative;
-    overflow: hidden;
-}
-
-.nav-item::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 3px;
-    background: var(--accent-blue);
-    border-radius: 0 3px 3px 0;
-    transform: scaleY(0);
-    transition: transform 0.2s;
-}
-
-.nav-item:hover {
-    background: rgba(59, 130, 246, 0.08);
-    color: var(--text-primary);
-    border-color: rgba(59, 130, 246, 0.2);
-}
-
-.nav-item.active {
-    background: rgba(59, 130, 246, 0.15);
-    color: var(--accent-blue-bright);
-    border-color: rgba(59, 130, 246, 0.3);
-}
-
-.nav-item.active::before {
-    transform: scaleY(1);
-}
-
-.nav-item-icon {
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-    background: rgba(255, 255, 255, 0.05);
-    transition: all 0.2s;
-    flex-shrink: 0;
-}
-
-.nav-item.active .nav-item-icon {
-    background: rgba(59, 130, 246, 0.2);
-    color: var(--accent-blue-bright);
-}
-
-.nav-badge {
-    margin-left: auto;
-    background: var(--accent-blue-dark);
-    color: white;
-    font-size: 9px;
-    padding: 2px 6px;
-    border-radius: 20px;
-    font-weight: 600;
-}
-
-/* ====== MAIN CONTENT ====== */
-.main {
-    flex: 1;
-    margin-left: var(--sidebar-width);
-    padding: 28px;
-    min-height: calc(100vh - var(--nav-height));
-}
-
-/* ====== PAGE ====== */
-.page {
-    display: none;
-    animation: fadeIn 0.3s ease;
-}
-
-.page.active {
-    display: block;
-}
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(8px);
+    try {
+      // ส่งคำสั่งลบไปยัง Google Sheets
+      await jsonpRequest({ action: 'deleteStudent', id: id });
+    } catch(e) {
+      console.warn('GAS delete failed, removing locally only:', e);
     }
 
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-/* ====== PAGE HEADER ====== */
-.page-header {
-    margin-bottom: 28px;
-}
-
-.page-title {
-    font-size: 22px;
-    font-weight: 700;
-    color: var(--text-primary);
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 6px;
-}
-
-.page-title-icon {
-    width: 42px;
-    height: 42px;
-    background: linear-gradient(135deg, var(--accent-blue-dark), var(--accent-blue));
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    box-shadow: 0 0 16px rgba(59, 130, 246, 0.3);
-}
-
-.page-subtitle {
-    color: var(--text-muted);
-    font-size: 13px;
-    margin-left: 54px;
-}
-
-/* ====== CARD ====== */
-.card {
-    background: var(--bg-card);
-    border: 1px solid var(--border-blue);
-    border-radius: 14px;
-    padding: 22px;
-    box-shadow: var(--shadow-card);
-    transition: border-color 0.2s;
-}
-
-.card:hover {
-    border-color: rgba(59, 130, 246, 0.4);
-}
-
-.card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 18px;
-}
-
-.card-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.card-title i {
-    color: var(--accent-blue);
-}
-
-/* ====== STATS GRID ====== */
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
-    margin-bottom: 28px;
-}
-
-.stat-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border-blue);
-    border-radius: 14px;
-    padding: 20px;
-    box-shadow: var(--shadow-card);
-    position: relative;
-    overflow: hidden;
-    transition: all 0.3s;
-}
-
-.stat-card::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 60px;
-    height: 60px;
-    border-radius: 50%;
-    filter: blur(20px);
-    opacity: 0.3;
-}
-
-.stat-card.present::after {
-    background: var(--success);
-}
-
-.stat-card.late::after {
-    background: var(--warning);
-}
-
-.stat-card.leave::after {
-    background: var(--info);
-}
-
-.stat-card.absent::after {
-    background: var(--danger);
-}
-
-.stat-card:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-blue);
-}
-
-.stat-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-bottom: 8px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.stat-value {
-    font-size: 32px;
-    font-weight: 700;
-    line-height: 1;
-    margin-bottom: 4px;
-}
-
-.stat-card.present .stat-value {
-    color: var(--success);
-}
-
-.stat-card.late .stat-value {
-    color: var(--warning);
-}
-
-.stat-card.leave .stat-value {
-    color: var(--info);
-}
-
-.stat-card.absent .stat-value {
-    color: var(--danger);
-}
-
-.stat-desc {
-    font-size: 11px;
-    color: var(--text-muted);
-}
-
-.stat-icon {
-    position: absolute;
-    top: 16px;
-    right: 16px;
-    font-size: 22px;
-    opacity: 0.2;
-}
-
-/* ====== FORM CONTROLS ====== */
-.form-row {
-    display: grid;
-    gap: 16px;
-    margin-bottom: 16px;
-}
-
-.form-row.cols-2 {
-    grid-template-columns: 1fr 1fr;
-}
-
-.form-row.cols-3 {
-    grid-template-columns: 1fr 1fr 1fr;
-}
-
-.form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.form-label {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    letter-spacing: 0.05em;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.form-label i {
-    color: var(--accent-blue);
-    font-size: 11px;
-}
-
-.form-control {
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid var(--border-blue);
-    border-radius: 8px;
-    padding: 9px 14px;
-    color: var(--text-primary);
-    font-family: inherit;
-    font-size: 13px;
-    outline: none;
-    transition: all 0.2s;
-    width: 100%;
-}
-
-.form-control:focus {
-    border-color: var(--accent-blue);
-    background: rgba(59, 130, 246, 0.05);
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-}
-
-.form-control option {
-    background: var(--bg-card);
-    color: var(--text-primary);
-}
-
-/* ====== BUTTONS ====== */
-.btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 20px;
-    border-radius: 8px;
-    font-family: inherit;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    border: none;
-    letter-spacing: 0.02em;
-}
-
-.btn-primary {
-    background: linear-gradient(135deg, var(--accent-blue-dark), var(--accent-blue));
-    color: white;
-    box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);
-}
-
-.btn-primary:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 6px 20px rgba(59, 130, 246, 0.5);
-}
-
-.btn-primary:active {
-    transform: translateY(0);
-}
-
-.btn-secondary {
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--text-secondary);
-    border: 1px solid var(--border-blue);
-}
-
-.btn-secondary:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: var(--text-primary);
-}
-
-.btn-success {
-    background: linear-gradient(135deg, #059669, #10b981);
-    color: white;
-    box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
-}
-
-.btn-success:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45);
-}
-
-.btn-lg {
-    padding: 12px 28px;
-    font-size: 14px;
-    border-radius: 10px;
-}
-
-/* ====== ATTENDANCE TABLE ====== */
-.attendance-table {
-    width: 100%;
-    border-collapse: separate;
-    border-spacing: 0 6px;
-}
-
-.attendance-table thead th {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    padding: 8px 14px;
-    text-align: left;
-    border-bottom: 1px solid var(--border-blue);
-}
-
-.student-row {
-    background: rgba(255, 255, 255, 0.02);
-    border-radius: 10px;
-    transition: all 0.2s;
-    position: relative;
-}
-
-.student-row:hover {
-    background: rgba(59, 130, 246, 0.06);
-}
-
-.student-row td {
-    padding: 12px 14px;
-    font-size: 13px;
-    vertical-align: middle;
-}
-
-.student-row td:first-child {
-    border-radius: 10px 0 0 10px;
-    padding-left: 16px;
-}
-
-.student-row td:last-child {
-    border-radius: 0 10px 10px 0;
-    padding-right: 16px;
-}
-
-.student-num {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    background: rgba(59, 130, 246, 0.15);
-    border-radius: 6px;
-    font-size: 11px;
-    font-weight: 700;
-    color: var(--accent-blue-bright);
-    margin-right: 10px;
-}
-
-.student-name {
-    font-weight: 500;
-}
-
-/* ====== STATUS RADIO ====== */
-.status-group {
-    display: flex;
-    gap: 6px;
-}
-
-.status-radio {
-    display: none;
-}
-
-.status-label {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    padding: 5px 10px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    border: 1.5px solid transparent;
-    background: rgba(255, 255, 255, 0.04);
-    color: var(--text-muted);
-    white-space: nowrap;
-}
-
-.status-radio[value="present"]+.status-label {
-    border-color: rgba(16, 185, 129, 0.3);
-}
-
-.status-radio[value="late"]+.status-label {
-    border-color: rgba(245, 158, 11, 0.3);
-}
-
-.status-radio[value="leave"]+.status-label {
-    border-color: rgba(6, 182, 212, 0.3);
-}
-
-.status-radio[value="absent"]+.status-label {
-    border-color: rgba(239, 68, 68, 0.3);
-}
-
-.status-radio[value="present"]:checked+.status-label {
-    background: rgba(16, 185, 129, 0.2);
-    border-color: var(--success);
-    color: var(--success);
-}
-
-.status-radio[value="late"]:checked+.status-label {
-    background: rgba(245, 158, 11, 0.2);
-    border-color: var(--warning);
-    color: var(--warning);
-}
-
-.status-radio[value="leave"]:checked+.status-label {
-    background: rgba(6, 182, 212, 0.2);
-    border-color: var(--info);
-    color: var(--info);
-}
-
-.status-radio[value="absent"]:checked+.status-label {
-    background: rgba(239, 68, 68, 0.2);
-    border-color: var(--danger);
-    color: var(--danger);
-}
-
-/* ====== STATS TABLE ====== */
-.stats-table-wrap {
-    overflow-x: auto;
-    border-radius: 10px;
-}
-
-.stats-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-
-.stats-table th {
-    background: rgba(59, 130, 246, 0.1);
-    padding: 11px 16px;
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    text-align: left;
-    border-bottom: 1px solid var(--border-blue);
-    white-space: nowrap;
-}
-
-.stats-table td {
-    padding: 11px 16px;
-    font-size: 13px;
-    border-bottom: 1px solid rgba(45, 74, 138, 0.3);
-    vertical-align: middle;
-}
-
-.stats-table tr:last-child td {
-    border-bottom: none;
-}
-
-.stats-table tr:hover td {
-    background: rgba(59, 130, 246, 0.04);
-}
-
-.status-pill {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 36px;
-    padding: 3px 10px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 700;
-}
-
-.pill-present {
-    background: rgba(16, 185, 129, 0.15);
-    color: var(--success);
-}
-
-.pill-late {
-    background: rgba(245, 158, 11, 0.15);
-    color: var(--warning);
-}
-
-.pill-leave {
-    background: rgba(6, 182, 212, 0.15);
-    color: var(--info);
-}
-
-.pill-absent {
-    background: rgba(239, 68, 68, 0.15);
-    color: var(--danger);
-}
-
-/* ====== PROGRESS BAR ====== */
-.mini-bar-wrap {
-    display: flex;
-    gap: 2px;
-    height: 6px;
-    border-radius: 4px;
-    overflow: hidden;
-    min-width: 80px;
-    background: rgba(255, 255, 255, 0.05);
-}
-
-.mini-bar {
-    height: 100%;
-    border-radius: 2px;
-    transition: width 0.4s;
-}
-
-/* ====== EMPTY STATE ====== */
-.empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 48px 24px;
-    color: var(--text-muted);
-    gap: 12px;
-}
-
-.empty-state i {
-    font-size: 40px;
-    opacity: 0.3;
-}
-
-.empty-state p {
-    font-size: 13px;
-    text-align: center;
-    line-height: 1.6;
-}
-
-/* ====== LOADING ====== */
-.loading-row td {
-    padding: 24px;
-    text-align: center;
-    color: var(--text-muted);
-    font-size: 13px;
-}
-
-.spinner {
-    display: inline-block;
-    width: 16px;
-    height: 16px;
-    border: 2px solid rgba(59, 130, 246, 0.2);
-    border-top-color: var(--accent-blue);
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-    margin-right: 8px;
-    vertical-align: middle;
-}
-
-@keyframes spin {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-/* ====== TOAST ====== */
-.toast-container {
-    position: fixed;
-    bottom: 24px;
-    right: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    z-index: 9999;
-}
-
-.toast {
-    background: var(--bg-card);
-    border: 1px solid var(--border-blue);
-    border-radius: 10px;
-    padding: 14px 18px;
-    box-shadow: var(--shadow-card);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 260px;
-    animation: slideIn 0.3s ease;
-}
-
-@keyframes slideIn {
-    from {
-        transform: translateX(100px);
-        opacity: 0;
-    }
-
-    to {
-        transform: translateX(0);
-        opacity: 1;
-    }
-}
-
-.toast i {
-    font-size: 18px;
-}
-
-.toast.success i {
-    color: var(--success);
-}
-
-.toast.error i {
-    color: var(--danger);
-}
-
-/* ====== DIVIDER ====== */
-.divider {
-    height: 1px;
-    background: var(--border-blue);
-    margin: 20px 0;
-    opacity: 0.5;
-}
-
-/* ====== CLASS FILTER TABS ====== */
-.class-tabs {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    margin-bottom: 20px;
-}
-
-.class-tab {
-    padding: 6px 14px;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
-    border: 1.5px solid var(--border-blue);
-    color: var(--text-muted);
-    background: transparent;
-    font-family: inherit;
-}
-
-.class-tab:hover {
-    border-color: var(--accent-blue);
-    color: var(--accent-blue-bright);
-}
-
-.class-tab.active {
-    background: rgba(59, 130, 246, 0.2);
-    border-color: var(--accent-blue);
-    color: var(--accent-blue-bright);
-}
-
-/* ====== SCROLLBAR ====== */
-::-webkit-scrollbar {
-    width: 5px;
-    height: 5px;
-}
-
-::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-    background: var(--border-blue);
-    border-radius: 10px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: var(--accent-blue);
-}
-
-/* ====== DASHBOARD GRID ====== */
-.dashboard-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-    margin-top: 20px;
-}
-
-.quick-action {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 16px;
-    background: rgba(255, 255, 255, 0.02);
-    border-radius: 10px;
-    cursor: pointer;
-    transition: all 0.2s;
-    border: 1px solid transparent;
-}
-
-.quick-action:hover {
-    background: rgba(59, 130, 246, 0.07);
-    border-color: rgba(59, 130, 246, 0.3);
-    transform: translateX(4px);
-}
-
-.quick-action-icon {
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    flex-shrink: 0;
-}
-
-.quick-action-text strong {
-    display: block;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 2px;
-}
-
-.quick-action-text span {
-    font-size: 11px;
-    color: var(--text-muted);
-}
-
-/* ====== CHART ====== */
-.chart-bars {
-    display: flex;
-    align-items: flex-end;
-    gap: 8px;
-    height: 120px;
-    padding-top: 12px;
-}
-
-.chart-bar-wrap {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    height: 100%;
-}
-
-.chart-bar {
-    width: 100%;
-    border-radius: 6px 6px 0 0;
-    min-height: 4px;
-    transition: height 0.5s ease;
-}
-
-.chart-bar-label {
-    font-size: 10px;
-    color: var(--text-muted);
-    font-weight: 600;
-    white-space: nowrap;
-}
-
-/* ====== MENU TOGGLE (hidden on desktop) ====== */
-.menu-toggle {
-    display: none;
-    align-items: center;
-    justify-content: center;
-    background: rgba(59, 130, 246, 0.1);
-    border: 1px solid var(--border-blue);
-    border-radius: 8px;
-    color: var(--text-primary);
-    font-size: 16px;
-    cursor: pointer;
-    padding: 7px 10px;
-    transition: all 0.2s;
-    flex-shrink: 0;
-}
-
-.menu-toggle:hover {
-    background: rgba(59, 130, 246, 0.2);
-    border-color: var(--accent-blue);
-}
-
-/* ====== SIDEBAR OVERLAY — ใช้ body class แทน div overlay ====== */
-body.sidebar-open::after {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.55);
-    z-index: 150;
-    /* iOS Safari — ป้องกัน blur compositing */
-    -webkit-transform: translateZ(0);
-    transform: translateZ(0);
-    -webkit-backface-visibility: hidden;
-    backface-visibility: hidden;
-}
-
-/* ====== RESPONSIVE ====== */
-@media (max-width: 768px) {
-
-    /* Show hamburger */
-    .menu-toggle {
-        display: flex;
-    }
-
-    /* Hide search bar to save space */
-    .nav-search {
-        display: none;
-    }
-
-    /* Sidebar slides off-screen by default */
-    .sidebar {
-        -webkit-transform: translate3d(-100%, 0, 0);
-        transform: translate3d(-100%, 0, 0);
-        -webkit-transition: -webkit-transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        z-index: 200;
-        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.5);
-        /* iOS Safari — ป้องกัน blur เมื่อใช้ transform */
-        -webkit-backface-visibility: hidden;
-        backface-visibility: hidden;
-        -webkit-perspective: 1000px;
-        perspective: 1000px;
-        will-change: transform;
-        isolation: isolate;
-    }
-
-    /* Sidebar slides in when .open is added */
-    .sidebar.open {
-        -webkit-transform: translate3d(0, 0, 0);
-        transform: translate3d(0, 0, 0);
-    }
-
-    /* Main takes full width — no sidebar offset */
-    .main {
-        margin-left: 0;
-        padding: 12px;
-        width: 100%;
-        max-width: 100vw;
-        overflow-x: hidden;
-    }
-
-    /* Card ไม่เกินขนาดจอ */
-    .card {
-        width: 100%;
-        max-width: 100%;
-        overflow: hidden;
-    }
-
-    /* Grids — 1 column on mobile to prevent overflow */
-    .stats-grid {
-        grid-template-columns: 1fr 1fr;
-        gap: 10px;
-    }
-
-    .dashboard-grid {
-        grid-template-columns: 1fr;
-    }
-
-    /* Forms stack vertically */
-    .form-row.cols-2,
-    .form-row.cols-3 {
-        grid-template-columns: 1fr;
-    }
-
-    /* Status radios wrap instead of overflow */
-    .status-group {
-        flex-wrap: wrap;
-        gap: 4px;
-    }
-
-    /* Nav actions — compress text */
-    .nav-btn span {
-        display: none;
-    }
-
-    .nav-actions {
-        gap: 6px;
-    }
-
-    /* Page title font size */
-    .page-title {
-        font-size: 18px;
-    }
-
-    /* ตารางสถิติ scroll แนวนอนได้ ไม่ overflow */
-    .stats-table-wrap {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-    }
-
-    .stats-table {
-        min-width: 500px;
-    }
-
-    .attendance-table {
-        min-width: 0;
-        width: 100%;
-    }
-
-    /* stat-card text เล็กลงนิดนึง */
-    .stat-value {
-        font-size: 26px;
-    }
-
-    .stat-card {
-        padding: 14px;
-    }
-}
-
-@media (max-width: 480px) {
-
-    /* 2-column stat cards on small phones */
-    .stats-grid {
-        grid-template-columns: 1fr 1fr;
-    }
-
-    /* Compact nav */
-    .nav-actions {
-        display: none;
-    }
-
-    /* Smaller padding */
-    .main {
-        padding: 12px;
-    }
-
-    .card {
-        padding: 16px;
-    }
-
-    /* Status labels — icon only */
-    .status-label {
-        padding: 5px 8px;
-        font-size: 10px;
-    }
-
-    /* Logo sub text hide on tiny screens */
-    .logo-sub {
-        display: none;
-    }
-}
-
-/* Swal custom */
-.swal2-popup {
-    background: var(--bg-card) !important;
-    border: 1px solid var(--border-blue) !important;
-    color: var(--text-primary) !important;
-    border-radius: 16px !important;
-}
-
-.swal2-title {
-    color: var(--text-primary) !important;
-}
-
-.swal2-html-container {
-    color: var(--text-secondary) !important;
-}
-
-.swal2-confirm {
-    background: linear-gradient(135deg, var(--accent-blue-dark), var(--accent-blue)) !important;
-    border: none !important;
+    // ลบออกจาก local data ไม่ว่า GAS จะสำเร็จหรือไม่
+    appData.students = appData.students.filter(s => s.id !== id);
+    updateBadge();
+    renderStudentList();
+
+    Swal.fire({
+      icon: 'success',
+      title: 'ลบเรียบร้อย!',
+      html: `ลบ <b>${student.name}</b> ออกจากระบบแล้ว`,
+      timer: 2000,
+      showConfirmButton: false
+    });
+  });
+}
+
+// ===== STATISTICS =====
+function loadStudentsForStats() {
+  loadAllData().then(() => {
+    renderStatsTable();
+  }).catch(() => {
+    renderStatsTable();
+  });
+}
+
+function renderStatsTable() {
+  const wrap = document.getElementById('stats-table-wrap');
+  if (!wrap) return;
+
+  const filter = document.getElementById('stat-class-filter') ? document.getElementById('stat-class-filter').value : '';
+  let students = filter ? appData.students.filter(s => s.class === filter) : appData.students;
+  students = [...students].sort((a,b) => {
+    if (a.class < b.class) return -1;
+    if (a.class > b.class) return 1;
+    return (a.number||0)-(b.number||0);
+  });
+
+  // Compute stats per student
+  let totalP=0,totalL=0,totalLv=0,totalAb=0;
+  const studentStats = students.map(s => {
+    let p=0,l=0,lv=0,ab=0;
+    Object.values(appData.attendance).forEach(dayRecords => {
+      dayRecords.forEach(rec => {
+        if (rec.student_id === s.id) {
+          if (rec.status==='present') p++;
+          else if (rec.status==='late') l++;
+          else if (rec.status==='leave') lv++;
+          else if (rec.status==='absent') ab++;
+        }
+      });
+    });
+    totalP+=p; totalL+=l; totalLv+=lv; totalAb+=ab;
+    const total = p+l+lv+ab;
+    const rate = total > 0 ? Math.round((p/total)*100) : 0;
+    return {...s, p, l, lv, ab, total, rate};
+  });
+
+  // Update summary
+  document.getElementById('stat-total-present').textContent = totalP;
+  document.getElementById('stat-total-late').textContent = totalL;
+  document.getElementById('stat-total-leave').textContent = totalLv;
+  document.getElementById('stat-total-absent').textContent = totalAb;
+
+  if (studentStats.length === 0) {
+    wrap.innerHTML = `<div class="empty-state"><i class="fas fa-chart-bar"></i><p>ยังไม่มีข้อมูลสถิติ</p></div>`;
+    return;
+  }
+
+  let html = `
+    <table class="stats-table">
+      <thead>
+        <tr>
+          <th>เลขที่</th>
+          <th>ชื่อ-สกุล</th>
+          <th>ชั้น</th>
+          <th style="text-align:center"><i class="fas fa-check" style="color:var(--success)"></i> มา</th>
+          <th style="text-align:center"><i class="fas fa-clock" style="color:var(--warning)"></i> สาย</th>
+          <th style="text-align:center"><i class="fas fa-file-alt" style="color:var(--info)"></i> ลา</th>
+          <th style="text-align:center"><i class="fas fa-times" style="color:var(--danger)"></i> ขาด</th>
+          <th>อัตรา</th>
+        </tr>
+      </thead>
+      <tbody>`;
+
+  studentStats.forEach(s => {
+    const total = s.total || 1;
+    html += `
+      <tr>
+        <td><span class="student-num">${s.number||'—'}</span></td>
+        <td style="font-weight:500">${s.name}</td>
+        <td><span style="background:rgba(59,130,246,0.12);color:var(--accent-blue-bright);padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700">${s.class}</span></td>
+        <td style="text-align:center"><span class="status-pill pill-present">${s.p}</span></td>
+        <td style="text-align:center"><span class="status-pill pill-late">${s.l}</span></td>
+        <td style="text-align:center"><span class="status-pill pill-leave">${s.lv}</span></td>
+        <td style="text-align:center"><span class="status-pill pill-absent">${s.ab}</span></td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div class="mini-bar-wrap">
+              <div class="mini-bar" style="width:${(s.p/total*100).toFixed(0)}%;background:var(--success)"></div>
+              <div class="mini-bar" style="width:${(s.l/total*100).toFixed(0)}%;background:var(--warning)"></div>
+              <div class="mini-bar" style="width:${(s.lv/total*100).toFixed(0)}%;background:var(--info)"></div>
+              <div class="mini-bar" style="width:${(s.ab/total*100).toFixed(0)}%;background:var(--danger)"></div>
+            </div>
+            <span style="font-size:11px;font-weight:700;color:${s.rate>=80?'var(--success)':s.rate>=60?'var(--warning)':'var(--danger)'}">${s.total>0?s.rate+'%':'—'}</span>
+          </div>
+        </td>
+      </tr>`;
+  });
+
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+// ===== TOAST =====
+function showToast(msg, type='success') {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.innerHTML = `<i class="fas fa-${type==='success'?'check-circle':'exclamation-circle'}"></i><span style="font-size:13px">${msg}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), 3500);
+}
+
+// ===== SEARCH =====
+function handleSearch(val) {
+  if (val.length > 1) {
+    const results = appData.students.filter(s => s.name.includes(val));
+    showToast(`พบ ${results.length} คนที่ตรงกับ "${val}"`, 'success');
+  }
+}
+
+// ===== EXPORT =====
+function exportData() {
+  const rows = [['วันที่', 'รหัสนักเรียน', 'ชื่อ', 'ชั้น', 'เลขที่', 'สถานะ']];
+  Object.entries(appData.attendance).forEach(([date, records]) => {
+    records.forEach(r => {
+      const s = appData.students.find(st => st.id === r.student_id);
+      if (s) rows.push([date, s.id, s.name, s.class, s.number, r.status]);
+    });
+  });
+  const csv = rows.map(r => r.join(',')).join('\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'attendance_export.csv'; a.click();
+  showToast('ส่งออกข้อมูลสำเร็จ', 'success');
 }
