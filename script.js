@@ -59,8 +59,8 @@ body::before {
     left: 0;
     right: 0;
     height: var(--nav-height);
-    background: rgba(22, 27, 39, 0.95);
-    backdrop-filter: blur(12px);
+    background: rgba(22, 27, 39, 0.98);
+    /* ไม่ใช้ backdrop-filter เพราะทำให้ iOS สร้าง compositing layer ใหม่และ blur sidebar */
     border-bottom: 1px solid var(--border-blue);
     display: flex;
     align-items: center;
@@ -1077,6 +1077,11 @@ body.sidebar-open::after {
     inset: 0;
     background: rgba(0, 0, 0, 0.55);
     z-index: 150;
+    /* iOS Safari — ป้องกัน blur compositing */
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
 }
 
 /* ====== RESPONSIVE ====== */
@@ -1094,16 +1099,25 @@ body.sidebar-open::after {
 
     /* Sidebar slides off-screen by default */
     .sidebar {
-        transform: translateX(-100%);
+        -webkit-transform: translate3d(-100%, 0, 0);
+        transform: translate3d(-100%, 0, 0);
+        -webkit-transition: -webkit-transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         z-index: 200;
-        /* สูงกว่า overlay (150) เสมอ — คลิกได้แน่นอน */
         box-shadow: 4px 0 24px rgba(0, 0, 0, 0.5);
+        /* iOS Safari — ป้องกัน blur เมื่อใช้ transform */
+        -webkit-backface-visibility: hidden;
+        backface-visibility: hidden;
+        -webkit-perspective: 1000px;
+        perspective: 1000px;
+        will-change: transform;
+        isolation: isolate;
     }
 
     /* Sidebar slides in when .open is added */
     .sidebar.open {
-        transform: translateX(0);
+        -webkit-transform: translate3d(0, 0, 0);
+        transform: translate3d(0, 0, 0);
     }
 
     /* Main takes full width — no sidebar offset */
