@@ -1,6 +1,5 @@
-
 // ===== CONFIG =====
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwEmFPXZ4S18jI6QL4Pv8ak_bwLyVcFfaP7A7s9sUXwi3v7pRanso479qlzllY92qRm_w/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby3WrYxTQqTA4Tl2H9tWnGl13x0BF9e2cHHBTEhFMDoGFSj5GUsjUIx5iIUD_YG2ddN5Q/exec';
 
 // ===== DATA STORE =====
 let appData = {
@@ -61,24 +60,33 @@ function showPage(id, navEl) {
 
 function toggleSidebar() {
     const sidebar = document.getElementById('sidebar');
-    const overlay = document.getElementById('sidebar-overlay');
-    const isOpen = sidebar.classList.contains('open');
-    if (isOpen) {
+    if (sidebar.classList.contains('open')) {
         closeSidebar();
     } else {
         sidebar.classList.add('open');
-        overlay.classList.add('active');
-        document.body.style.overflow = 'hidden'; // prevent background scroll
+        document.body.classList.add('sidebar-open');
+        document.body.style.overflow = 'hidden';
     }
 }
 
 function closeSidebar() {
-    const sidebar = document.getElementById('sidebar');
-    const overlay = document.getElementById('sidebar-overlay');
-    sidebar.classList.remove('open');
-    overlay.classList.remove('active');
+    document.getElementById('sidebar').classList.remove('open');
+    document.body.classList.remove('sidebar-open');
     document.body.style.overflow = '';
 }
+
+// คลิก overlay (body::after) เพื่อปิด sidebar
+document.addEventListener('click', function (e) {
+    const sidebar = document.getElementById('sidebar');
+    const toggle = document.querySelector('.menu-toggle');
+    if (
+        document.body.classList.contains('sidebar-open') &&
+        !sidebar.contains(e.target) &&
+        !toggle.contains(e.target)
+    ) {
+        closeSidebar();
+    }
+});
 
 // ===== JSONP HELPER =====
 function jsonpRequest(params) {
